@@ -1,0 +1,13 @@
+"""Tiny RPC layer: one request/response per TCP connection.
+
+Wire format: 4-byte big-endian length of a JSON header, the JSON header (which carries the payload
+length under "_n"), then the raw payload bytes. Keeping bulk data out of JSON is the point: the same
+framing carries 64 MB chunks and small control messages.
+"""
+import json
+import socket
+import socketserver
+import struct
+import threading
+
+
