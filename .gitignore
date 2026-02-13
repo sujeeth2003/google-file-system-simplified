@@ -1,0 +1,12 @@
+build/
+__pycache__/
+*.pyc
+*.exe
+*.pdb
+*.o
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+.venv/
