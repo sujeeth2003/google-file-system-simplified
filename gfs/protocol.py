@@ -21,3 +21,10 @@ def _recv_exact(sock, n):
     return bytes(buf)
 
 
+def send(sock, msg, payload=b""):
+    m = dict(msg)
+    m["_n"] = len(payload)
+    body = json.dumps(m).encode()
+    sock.sendall(struct.pack(">I", len(body)) + body + payload)
+
+
