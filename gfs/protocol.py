@@ -28,3 +28,11 @@ def send(sock, msg, payload=b""):
     sock.sendall(struct.pack(">I", len(body)) + body + payload)
 
 
+def recv(sock):
+    (n,) = struct.unpack(">I", _recv_exact(sock, 4))
+    msg = json.loads(_recv_exact(sock, n))
+    payload = _recv_exact(sock, msg.pop("_n")) if msg.get("_n") else b""
+    msg.pop("_n", None)
+    return msg, payload
+
+
