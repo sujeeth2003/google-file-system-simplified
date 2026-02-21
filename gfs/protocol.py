@@ -11,3 +11,13 @@ import struct
 import threading
 
 
+def _recv_exact(sock, n):
+    buf = bytearray()
+    while len(buf) < n:
+        part = sock.recv(n - len(buf))
+        if not part:
+            raise ConnectionError("connection closed mid-message")
+        buf += part
+    return bytes(buf)
+
+
