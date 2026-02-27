@@ -38,3 +38,18 @@ class Master:
         self.started = time.time()       # after a (re)start, locations are unknown until heartbeats arrive: hold off re-replication
         self._maint = threading.Thread(target=self._maintenance, args=(maintenance_interval,), daemon=True)
 
+    # ------------------------------------------------------------------ lifecycle
+    def start(self):
+        self.server.start()
+        self._maint.start()
+        return self
+
+    def stop(self):
+        self._stop.set()
+        self.server.stop()
+        self.log.close()
+
+    # ------------------------------------------------------------------ operation log
+    def _log(self, **rec):
+        self.log.write(json.dumps(rec) + "\n")
+
