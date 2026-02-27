@@ -40,3 +40,21 @@ class ChunkServer:
         self._hb = threading.Thread(target=self._heartbeat_loop, args=(heartbeat_interval,), daemon=True)
         self._scrub = threading.Thread(target=self._scrub_loop, args=(scrub_interval,), daemon=True)
 
+    def start(self):
+        self.server.start()
+        self._hb.start()
+        self._scrub.start()
+        return self
+
+    def stop(self):                                          # simulate a crash: stop serving and stop heartbeating
+        self.alive = False
+        self._stop.set()
+        self.server.stop()
+
+    # ------------------------------------------------------------------ on-disk layout
+    def _path(self, h): return os.path.join(self.root, h + ".chunk")
+    def _meta_path(self, h): return os.path.join(self.root, h + ".meta")
+    def _lock(self, h):
+        with self.meta_lock:
+            return self.locks.setdefault(h, threading.Lock())
+
