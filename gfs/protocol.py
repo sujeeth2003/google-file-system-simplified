@@ -43,3 +43,16 @@ def call(addr, msg, payload=b"", timeout=5.0):
         return recv(s)
 
 
+class _Handler(socketserver.BaseRequestHandler):
+    def handle(self):
+        try:
+            msg, payload = recv(self.request)
+            try:
+                resp, out = self.server.dispatch(msg, payload)
+            except Exception as e:                       # report, never crash the server thread
+                resp, out = {"ok": False, "error": f"{type(e).__name__}: {e}"}, b""
+            send(self.request, resp, out)
+        except (ConnectionError, OSError):
+            pass
+
+
