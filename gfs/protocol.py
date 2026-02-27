@@ -56,3 +56,20 @@ class _Handler(socketserver.BaseRequestHandler):
             pass
 
 
+class Server(socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+    def __init__(self, dispatch, host="127.0.0.1", port=0):
+        super().__init__((host, port), _Handler)
+        self.dispatch = dispatch
+        self.addr = self.server_address
+        self._thread = threading.Thread(target=self.serve_forever, daemon=True)
+
+    def start(self):
+        self._thread.start()
+        return self
+
+    def stop(self):
+        self.shutdown()
+        self.server_close()
