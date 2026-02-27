@@ -68,3 +68,19 @@ class Master:
                     self.chunks[r["handle"]] = {"version": r["version"], "locs": set(), "primary": None, "lease": 0.0, "length": 0, "acked": {}}
                 elif op == "version": self.chunks[r["handle"]]["version"] = r["version"]
 
+    # ------------------------------------------------------------------ helpers
+    def _live(self):
+        now = time.time()
+        return [a for a, s in self.servers.items() if now - s["last"] < self.hb_timeout]
+
+    def _live_locs(self, handle):
+        live = set(self._live())
+        return [a for a in self.chunks[handle]["locs"] if a in live]
+
+    def _rpc(self, addr, msg, payload=b"", timeout=3.0):
+        try:
+            resp, out = protocol.call(addr, msg, payload, timeout)
+            return resp, out
+        except OSError:
+            return {"ok": False, "error": "unreachable"}, b""
+
