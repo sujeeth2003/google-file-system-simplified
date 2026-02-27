@@ -24,3 +24,19 @@ class ChecksumError(Exception):
     """A block's CRC32 does not match: the replica is corrupt (distinct from ordinary I/O errors)."""
 
 
+class ChunkServer:
+    def __init__(self, root, master_addr, heartbeat_interval=0.3, scrub_interval=2.0, host="127.0.0.1", port=0):
+        os.makedirs(root, exist_ok=True)
+        self.root, self.master = root, tuple(master_addr)
+        cfg, _ = protocol.call(self.master, {"op": "config"})
+        self.chunk_size, self.block_size = cfg["chunk_size"], cfg["block_size"]
+        self.buffers = {}                                   # data_id -> bytes (pushed, not yet applied)
+        self.locks = {}                                     # handle -> Lock (serialises mutations per chunk)
+        self.meta_lock = threading.Lock()
+        self.server = protocol.Server(self._dispatch, host, port)
+        self.addr = self.server.addr
+        self.alive = True
+        self._stop = threading.Event()
+        self._hb = threading.Thread(target=self._heartbeat_loop, args=(heartbeat_interval,), daemon=True)
+        self._scrub = threading.Thread(target=self._scrub_loop, args=(scrub_interval,), daemon=True)
+
