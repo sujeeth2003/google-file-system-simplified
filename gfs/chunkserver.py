@@ -17,3 +17,10 @@ import threading
 import time
 import zlib
 
+from . import protocol
+
+
+class ChecksumError(Exception):
+    """A block's CRC32 does not match: the replica is corrupt (distinct from ordinary I/O errors)."""
+
+
