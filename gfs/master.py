@@ -53,3 +53,18 @@ class Master:
     def _log(self, **rec):
         self.log.write(json.dumps(rec) + "\n")
 
+    def _replay(self):
+        if not os.path.exists(self.log_path):
+            return
+        with open(self.log_path) as f:
+            for line in f:
+                r = json.loads(line)
+                op = r["op"]
+                if op == "create": self.files.setdefault(r["path"], [])
+                elif op == "delete":
+                    for h in self.files.pop(r["path"], []): self.chunks.pop(h, None)
+                elif op == "add_chunk":
+                    self.files[r["path"]].append(r["handle"])
+                    self.chunks[r["handle"]] = {"version": r["version"], "locs": set(), "primary": None, "lease": 0.0, "length": 0, "acked": {}}
+                elif op == "version": self.chunks[r["handle"]]["version"] = r["version"]
+
