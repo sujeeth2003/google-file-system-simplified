@@ -58,3 +58,17 @@ class ChunkServer:
         with self.meta_lock:
             return self.locks.setdefault(h, threading.Lock())
 
+    def _load_meta(self, h):
+        with open(self._meta_path(h)) as f:
+            return json.load(f)
+
+    def _save_meta(self, h, meta):
+        tmp = self._meta_path(h) + ".tmp"
+        with open(tmp, "w") as f: json.dump(meta, f)
+        os.replace(tmp, self._meta_path(h))
+
+    def _crc_blocks(self, data):
+        return [zlib.crc32(data[i:i + self.block_size]) for i in range(0, len(data), self.block_size)]
+
+    def _has(self, h): return os.path.exists(self._path(h)) and os.path.exists(self._meta_path(h))
+
