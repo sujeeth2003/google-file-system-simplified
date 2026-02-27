@@ -36,3 +36,10 @@ def recv(sock):
     return msg, payload
 
 
+def call(addr, msg, payload=b"", timeout=5.0):
+    """Send one request to (host, port); return (response_dict, payload)."""
+    with socket.create_connection(tuple(addr), timeout=timeout) as s:
+        send(s, msg, payload)
+        return recv(s)
+
+
