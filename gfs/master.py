@@ -84,3 +84,18 @@ class Master:
         except OSError:
             return {"ok": False, "error": "unreachable"}, b""
 
+    def _place(self, n, exclude=()):
+        """Pick n live servers, preferring the ones holding the fewest chunks."""
+        cands = [a for a in self._live() if a not in exclude]
+        random.shuffle(cands)
+        cands.sort(key=lambda a: len(self.servers[a]["chunks"]))
+        return cands[:n]
+
+    # ------------------------------------------------------------------ RPC dispatch
+    def _dispatch(self, msg, payload):
+        fn = getattr(self, "rpc_" + msg["op"], None)
+        if fn is None:
+            return {"ok": False, "error": f"unknown op {msg['op']}"}, b""
+        with self.lock:
+            return fn(msg), b""
+
