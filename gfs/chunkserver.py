@@ -93,3 +93,23 @@ class ChunkServer:
                 pass
             self._stop.wait(interval)
 
+    def _report_corrupt(self, h):
+        try:                                                    # the master drops this replica and re-replicates from a good one
+            protocol.call(self.master, {"op": "report_corrupt", "handle": h, "addr": list(self.addr)}, timeout=2)
+        except OSError:
+            pass
+
+    def _scrub_loop(self, interval):
+        """Background scrubbing: verify every block checksum of every chunk, so a rotted replica is found
+        even if nobody reads it (paper section 5.2)."""
+        while not self._stop.wait(interval):
+            for h in list(self._inventory()):
+                if self._stop.is_set(): return
+                try:
+                    with self._lock(h):
+                        self._read_verified(h, 0, os.path.getsize(self._path(h)))
+                except ChecksumError:
+                    self._report_corrupt(h)
+                except Exception:
+                    pass
+
