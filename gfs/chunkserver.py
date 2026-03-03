@@ -128,3 +128,17 @@ class ChunkServer:
         out = fn(msg, payload)
         return out if isinstance(out, tuple) else (out, b"")
 
+    def rpc_create_chunk(self, m, _):
+        h = m["handle"]
+        with self._lock(h):
+            open(self._path(h), "wb").close()
+            self._save_meta(h, {"version": m["version"], "crc": []})
+        return {"ok": True}
+
+    def rpc_set_version(self, m, _):
+        h = m["handle"]
+        if not self._has(h): return {"ok": False, "error": "no such chunk"}
+        with self._lock(h):
+            meta = self._load_meta(h); meta["version"] = m["version"]; self._save_meta(h, meta)
+        return {"ok": True}
+
