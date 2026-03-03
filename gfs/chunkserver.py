@@ -142,3 +142,21 @@ class ChunkServer:
             meta = self._load_meta(h); meta["version"] = m["version"]; self._save_meta(h, meta)
         return {"ok": True}
 
+    def rpc_delete_chunk(self, m, _):
+        self._drop(m["handle"]); return {"ok": True}
+
+    def rpc_push(self, m, data):
+        self.buffers[m["data_id"]] = data
+        return {"ok": True}
+
+    # ---- reads ----------------------------------------------------------------
+    def _read_verified(self, h, offset, length):
+        with open(self._path(h), "rb") as f:
+            raw = f.read()
+        meta = self._load_meta(h)
+        first, last = offset // self.block_size, (offset + max(length, 1) - 1) // self.block_size
+        for b in range(first, min(last, len(meta["crc"]) - 1) + 1):
+            if zlib.crc32(raw[b * self.block_size:(b + 1) * self.block_size]) != meta["crc"][b]:
+                raise ChecksumError(f"checksum mismatch in block {b}")
+        return raw[offset:offset + length]
+
