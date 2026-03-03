@@ -72,3 +72,24 @@ class ChunkServer:
 
     def _has(self, h): return os.path.exists(self._path(h)) and os.path.exists(self._meta_path(h))
 
+    # ------------------------------------------------------------------ heartbeat
+    def _inventory(self):
+        inv = {}
+        for fn in os.listdir(self.root):
+            if fn.endswith(".meta"):
+                h = fn[:-5]
+                try:
+                    inv[h] = [self._load_meta(h)["version"], os.path.getsize(self._path(h))]
+                except (OSError, ValueError, KeyError):
+                    pass
+        return inv
+
+    def _heartbeat_loop(self, interval):
+        while not self._stop.is_set():
+            try:
+                resp, _ = protocol.call(self.master, {"op": "heartbeat", "addr": list(self.addr), "chunks": self._inventory()}, timeout=2)
+                for h in resp.get("delete", []): self._drop(h)
+            except Exception:              # never let the heartbeat thread die (master restarting, torn reply, ...)
+                pass
+            self._stop.wait(interval)
+
