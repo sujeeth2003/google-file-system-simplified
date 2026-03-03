@@ -134,3 +134,23 @@ class Master:
             total += n
         return {"ok": True, "chunks": len(hs), "length": total}
 
+    def rpc_heartbeat(self, m):
+        addr = tuple(m["addr"])
+        info = self.servers.setdefault(addr, {"last": 0.0, "chunks": set()})
+        info["last"] = time.time()
+        info["chunks"] = set()
+        stale = []
+        for h, (ver, length) in m["chunks"].items():
+            c = self.chunks.get(h)
+            # A heartbeat is a snapshot: one taken just before a lease grant bumped the version can arrive after the
+            # bump. A server that already acknowledged the current version is therefore NOT stale.
+            behind = c is not None and ver < c["version"] and c["acked"].get(addr) != c["version"]
+            if c is None or behind:                  # unknown (deleted) or stale replica: tell the server to drop it
+                stale.append(h)
+                if c is not None: c["locs"].discard(addr)
+                continue
+            c["locs"].add(addr)
+            c["length"] = max(c["length"], length)
+            info["chunks"].add(h)
+        return {"ok": True, "delete": stale}
+
