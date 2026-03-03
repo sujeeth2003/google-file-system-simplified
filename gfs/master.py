@@ -99,3 +99,22 @@ class Master:
         with self.lock:
             return fn(msg), b""
 
+    def rpc_config(self, m):
+        return {"ok": True, **self.cfg}
+
+    def rpc_create(self, m):
+        if m["path"] in self.files:
+            return {"ok": False, "error": "exists"}
+        self.files[m["path"]] = []
+        self._log(op="create", path=m["path"])
+        return {"ok": True}
+
+    def rpc_delete(self, m):
+        handles = self.files.pop(m["path"], None)
+        if handles is None:
+            return {"ok": False, "error": "no such file"}
+        self._log(op="delete", path=m["path"])
+        for h in handles:            # lazy garbage collection: chunkservers drop unknown chunks on their next heartbeat
+            self.chunks.pop(h, None)
+        return {"ok": True}
+
