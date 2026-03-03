@@ -154,3 +154,27 @@ class Master:
             info["chunks"].add(h)
         return {"ok": True, "delete": stale}
 
+    def rpc_report_corrupt(self, m):
+        h, addr = m["handle"], tuple(m["addr"])
+        c = self.chunks.get(h)
+        if c:
+            c["locs"].discard(addr)
+            if c["primary"] == addr: c["primary"], c["lease"] = None, 0.0
+        if addr in self.servers: self.servers[addr]["chunks"].discard(h)
+        self._rpc(addr, {"op": "delete_chunk", "handle": h})
+        return {"ok": True}
+
+    def _allocate_chunk(self, path):
+        servers = self._place(self.cfg["replicas"])
+        if not servers:
+            raise RuntimeError("no live chunkservers")
+        h = uuid.uuid4().hex[:16]
+        self.chunks[h] = {"version": 1, "locs": set(), "primary": None, "lease": 0.0, "length": 0, "acked": {}}
+        self.files[path].append(h)
+        self._log(op="add_chunk", path=path, handle=h, version=1)
+        for a in servers:
+            r, _ = self._rpc(a, {"op": "create_chunk", "handle": h, "version": 1})
+            if r.get("ok"):
+                self.chunks[h]["locs"].add(a); self.servers[a]["chunks"].add(h)
+        return h
+
