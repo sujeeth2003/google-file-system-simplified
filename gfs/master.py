@@ -118,3 +118,19 @@ class Master:
             self.chunks.pop(h, None)
         return {"ok": True}
 
+    def rpc_list(self, m):
+        return {"ok": True, "files": sorted(p for p in self.files if p.startswith(m.get("prefix", "")))}
+
+    def rpc_stat(self, m):
+        if m["path"] not in self.files:
+            return {"ok": False, "error": "no such file"}
+        hs = self.files[m["path"]]
+        total = 0
+        for h in hs:                     # ask a live replica for the current length (heartbeat data can lag)
+            n = self.chunks[h]["length"]
+            for a in self._live_locs(h):
+                r, _ = self._rpc(a, {"op": "length", "handle": h})
+                if r.get("ok"): n = r["length"]; break
+            total += n
+        return {"ok": True, "chunks": len(hs), "length": total}
+
