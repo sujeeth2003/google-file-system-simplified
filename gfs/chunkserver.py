@@ -113,3 +113,18 @@ class ChunkServer:
                 except Exception:
                     pass
 
+    def _drop(self, h):
+        for p in (self._path(h), self._meta_path(h)):
+            try: os.remove(p)
+            except OSError: pass
+
+    # ------------------------------------------------------------------ RPC dispatch
+    def _dispatch(self, msg, payload):
+        if not self.alive:
+            raise ConnectionError("server stopped")
+        fn = getattr(self, "rpc_" + msg["op"], None)
+        if fn is None:
+            return {"ok": False, "error": f"unknown op {msg['op']}"}, b""
+        out = fn(msg, payload)
+        return out if isinstance(out, tuple) else (out, b"")
+
