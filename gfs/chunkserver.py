@@ -160,3 +160,21 @@ class ChunkServer:
                 raise ChecksumError(f"checksum mismatch in block {b}")
         return raw[offset:offset + length]
 
+    def rpc_read(self, m, _):
+        h = m["handle"]
+        if not self._has(h): return {"ok": False, "error": "no such chunk"}
+        try:
+            with self._lock(h):                                 # do not verify while a mutation is half-applied
+                data = self._read_verified(h, m["offset"], m["length"])
+        except ChecksumError as e:
+            self._report_corrupt(h)
+            return {"ok": False, "error": str(e)}
+        return {"ok": True, "version": self._load_meta(h)["version"]}, data
+
+    def rpc_read_all(self, m, _):
+        h = m["handle"]
+        if not self._has(h): return {"ok": False, "error": "no such chunk"}
+        with self._lock(h):
+            n = os.path.getsize(self._path(h))
+            return {"ok": True, "version": self._load_meta(h)["version"]}, self._read_verified(h, 0, n)
+
