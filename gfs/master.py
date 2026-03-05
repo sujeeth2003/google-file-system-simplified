@@ -178,3 +178,25 @@ class Master:
                 self.chunks[h]["locs"].add(a); self.servers[a]["chunks"].add(h)
         return h
 
+    def _grant_lease(self, h):
+        """Make sure chunk h has a valid primary. Granting a new lease bumps the chunk version so any
+        replica that was unreachable (and therefore misses the bump) is recognised as stale later."""
+        c = self.chunks[h]
+        now = time.time()
+        live = self._live_locs(h)
+        if c["primary"] in live and c["lease"] > now:
+            return
+        if not live:
+            raise RuntimeError("chunk has no live replica")
+        c["version"] += 1
+        self._log(op="version", handle=h, version=c["version"])
+        ok = []
+        for a in live:
+            r, _ = self._rpc(a, {"op": "set_version", "handle": h, "version": c["version"]})
+            if r.get("ok"): ok.append(a)
+        if not ok:
+            raise RuntimeError("no replica accepted the new version")
+        c["acked"] = {a: c["version"] for a in ok}
+        c["locs"] = set(ok) | (c["locs"] - set(live))
+        c["primary"], c["lease"] = ok[0], now + self.lease_seconds
+
