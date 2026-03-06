@@ -221,3 +221,23 @@ class Master:
             return {"ok": False, "error": "no live replica"}
         return {"ok": True, "handle": h, "version": c["version"], "primary": c["primary"], "replicas": locs}
 
+    def rpc_last_chunk(self, m):
+        """Index of the last chunk (creating the first one if the file is empty): used by record append."""
+        if m["path"] not in self.files:
+            return {"ok": False, "error": "no such file"}
+        if not self.files[m["path"]]:
+            self._allocate_chunk(m["path"])
+        return {"ok": True, "index": len(self.files[m["path"]]) - 1}
+
+    def rpc_status(self, m):
+        return {"ok": True, "servers": [list(a) for a in self._live()],
+                "chunks": {h: {"version": c["version"], "replicas": [list(a) for a in self._live_locs(h)]} for h, c in self.chunks.items()}}
+
+    # ------------------------------------------------------------------ background maintenance
+    def _maintenance(self, interval):
+        while not self._stop.wait(interval):
+            try:
+                self._re_replicate()
+            except Exception:
+                pass
+
