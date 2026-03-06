@@ -178,3 +178,29 @@ class ChunkServer:
             n = os.path.getsize(self._path(h))
             return {"ok": True, "version": self._load_meta(h)["version"]}, self._read_verified(h, 0, n)
 
+    # ---- mutations --------------------------------------------------------------
+    def _apply(self, h, offset, data):
+        """Write data at offset (zero-filling any gap), then recompute the CRCs of every touched block."""
+        with open(self._path(h), "r+b") as f:
+            f.seek(0, os.SEEK_END)
+            if f.tell() < offset: f.write(b"\0" * (offset - f.tell()))
+            f.seek(offset); f.write(data)
+            f.seek(0); raw = f.read()
+        meta = self._load_meta(h)
+        crcs = self._crc_blocks(raw)
+        meta["crc"] = crcs
+        self._save_meta(h, meta)
+
+    def rpc_apply(self, m, _):                                   # executed on secondaries, in primary-chosen order
+        h = m["handle"]
+        if not self._has(h): return {"ok": False, "error": "no such chunk"}
+        with self._lock(h):
+            if self._load_meta(h)["version"] != m["version"]: return {"ok": False, "error": "stale replica"}
+            if m.get("is_pad"):
+                data = b"\0" * m["pad"]
+            else:
+                data = self.buffers.pop(m["data_id"], None)
+                if data is None: return {"ok": False, "error": "data not pushed"}
+            self._apply(h, m["offset"], data)
+        return {"ok": True}
+
