@@ -200,3 +200,24 @@ class Master:
         c["locs"] = set(ok) | (c["locs"] - set(live))
         c["primary"], c["lease"] = ok[0], now + self.lease_seconds
 
+    def rpc_chunk_info(self, m):
+        path, idx = m["path"], m["index"]
+        if path not in self.files:
+            return {"ok": False, "error": "no such file"}
+        hs = self.files[path]
+        if idx >= len(hs):
+            if not m.get("create"):
+                return {"ok": False, "error": "past end of file"}
+            while len(hs) <= idx:
+                self._allocate_chunk(path)
+        h = hs[idx]
+        try:
+            if m.get("mutate"): self._grant_lease(h)
+        except RuntimeError as e:
+            return {"ok": False, "error": str(e)}
+        c = self.chunks[h]
+        locs = self._live_locs(h)
+        if not locs:
+            return {"ok": False, "error": "no live replica"}
+        return {"ok": True, "handle": h, "version": c["version"], "primary": c["primary"], "replicas": locs}
+
