@@ -228,3 +228,27 @@ class ChunkServer:
                 if offset + len(data) > self.chunk_size: return {"ok": False, "error": "write crosses chunk boundary"}
             return self._commit(m, h, offset, data, 0, None)
 
+    def _commit(self, m, h, offset, data, pad, status):
+        is_pad = data is None                      # padding the tail of a chunk (possibly 0 bytes) vs. a real record
+        args = {"op": "apply", "handle": h, "version": m["version"], "offset": offset,
+                "data_id": None if is_pad else m["data_id"], "pad": pad, "is_pad": is_pad}
+        self._apply(h, offset, b"\0" * pad if is_pad else data)
+        for s in m["secondaries"]:
+            r, _ = protocol.call(s, args, timeout=5)
+            if not r.get("ok"):
+                return {"ok": False, "error": f"secondary {s} failed: {r.get('error')}"}
+        self.buffers.pop(m["data_id"], None)
+        if status: return {"ok": True, "status": status}
+        return {"ok": True, "status": "done", "offset": offset}
+
+    # ---- re-replication / cloning -------------------------------------------------
+    def rpc_replicate(self, m, _):
+        h = m["handle"]
+        r, data = protocol.call(tuple(m["source"]), {"op": "read_all", "handle": h}, timeout=10)
+        if not r.get("ok"): return {"ok": False, "error": r.get("error")}
+        with self._lock(h):
+            open(self._path(h), "wb").close()
+            self._save_meta(h, {"version": m["version"], "crc": []})
+            self._apply(h, 0, data)
+            meta = self._load_meta(h); meta["version"] = m["version"]; self._save_meta(h, meta)
+        return {"ok": True}
