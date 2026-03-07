@@ -241,3 +241,36 @@ class Master:
             except Exception:
                 pass
 
+    def _re_replicate(self):
+        """Restore the replication factor for any under-replicated chunk by cloning from a healthy replica."""
+        if time.time() - self.started < 2 * self.hb_timeout:     # startup grace period
+            return
+        with self.lock:
+            live = set(self._live())
+            for a, s in list(self.servers.items()):
+                if a not in live:                        # dead server: forget its replicas
+                    for h in list(s["chunks"]):
+                        if h in self.chunks: self.chunks[h]["locs"].discard(a)
+                    s["chunks"] = set()
+            todo, trim = [], []
+            for h, c in self.chunks.items():
+                have = [a for a in c["locs"] if a in live]
+                want = self.cfg["replicas"]
+                if len(have) > want:                     # over-replicated (e.g. after a restart): drop copies on the fullest servers
+                    extras = sorted((a for a in have if a != c["primary"]), key=lambda a: -len(self.servers[a]["chunks"]))
+                    trim += [(h, a) for a in extras[:len(have) - want]]
+                if have and len(have) < want:
+                    targets = self._place(want - len(have), exclude=set(have))
+                    for t in targets: todo.append((h, have[0], t, c["version"]))
+        for h, a in trim:
+            r, _ = self._rpc(a, {"op": "delete_chunk", "handle": h})
+            if r.get("ok"):
+                with self.lock:
+                    if h in self.chunks: self.chunks[h]["locs"].discard(a)
+                    self.servers[a]["chunks"].discard(h)
+        for h, src, dst, ver in todo:                    # network calls outside the lock
+            r, _ = self._rpc(dst, {"op": "replicate", "handle": h, "source": list(src), "version": ver}, timeout=10)
+            if r.get("ok"):
+                with self.lock:
+                    if h in self.chunks:
+                        self.chunks[h]["locs"].add(dst); self.servers[dst]["chunks"].add(h)
