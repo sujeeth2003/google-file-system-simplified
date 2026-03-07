@@ -204,3 +204,27 @@ class ChunkServer:
             self._apply(h, m["offset"], data)
         return {"ok": True}
 
+    def rpc_length(self, m, _):
+        h = m["handle"]
+        if not self._has(h): return {"ok": False, "error": "no such chunk"}
+        with self._lock(h):                                      # wait for an in-progress mutation / clone to finish
+            return {"ok": True, "length": os.path.getsize(self._path(h))}
+
+    def rpc_mutate(self, m, _):                                  # executed on the primary
+        h, kind = m["handle"], m["kind"]
+        if not self._has(h): return {"ok": False, "error": "no such chunk"}
+        data = self.buffers.get(m["data_id"])
+        if data is None: return {"ok": False, "error": "data not pushed"}
+        with self._lock(h):                                      # serial order = lock acquisition order
+            if self._load_meta(h)["version"] != m["version"]: return {"ok": False, "error": "stale primary"}
+            length = os.path.getsize(self._path(h))
+            if kind == "append":
+                if length + len(data) > self.chunk_size:         # record would straddle the chunk: pad and retry on the next one
+                    pad = self.chunk_size - length
+                    return self._commit(m, h, length, None, pad, "retry_next_chunk")
+                offset = length
+            else:
+                offset = m["offset"]
+                if offset + len(data) > self.chunk_size: return {"ok": False, "error": "write crosses chunk boundary"}
+            return self._commit(m, h, offset, data, 0, None)
+
