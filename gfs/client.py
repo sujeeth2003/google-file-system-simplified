@@ -62,3 +62,25 @@ class GFSClient:
                 last = r.get("error")                          # e.g. checksum mismatch: fall through to the next replica
         raise GFSError(f"read failed on all replicas: {last}")
 
+    # ------------------------------------------------------------------ writes
+    def write(self, path, offset, data):
+        pos = 0
+        while pos < len(data):
+            idx, off = divmod(offset + pos, self.chunk_size)
+            n = min(len(data) - pos, self.chunk_size - off)
+            self._mutate(path, idx, "write", data[pos:pos + n], off)
+            pos += n
+
+    def append(self, path, data):
+        """Record append: atomically append `data` as one record at an offset GFS chooses; returns that file offset.
+        Records larger than a quarter chunk are rejected (paper: keeps padding waste bounded)."""
+        if len(data) > self.chunk_size // 4:
+            raise GFSError("record too large for record append")
+        idx = self._master({"op": "last_chunk", "path": path})["index"]
+        for _ in range(8):
+            status = self._mutate(path, idx, "append", data, None)
+            if status["status"] == "done":
+                return idx * self.chunk_size + status["offset"]
+            idx += 1                                           # chunk was padded: retry on the next chunk
+        raise GFSError("append kept retrying")
+
