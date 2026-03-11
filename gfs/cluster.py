@@ -24,3 +24,17 @@ class LocalCluster:
             self.add_server()
         self.wait_ready(n_servers)
 
+    def add_server(self):
+        i = len(self.servers)
+        s = ChunkServer(os.path.join(self.root, f"cs{i}"), self.master.addr, self.hb_interval, self.scrub_interval).start()
+        self.servers.append(s)
+        return s
+
+    def wait_ready(self, n, timeout=5.0):
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            with self.master.lock:
+                if len(self.master._live()) >= n: return
+            time.sleep(0.05)
+        raise TimeoutError("chunkservers did not register")
+
