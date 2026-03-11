@@ -84,3 +84,21 @@ class GFSClient:
             idx += 1                                           # chunk was padded: retry on the next chunk
         raise GFSError("append kept retrying")
 
+    def _mutate(self, path, idx, kind, data, offset):
+        last = None
+        for attempt in range(4):
+            info = self._chunk(path, idx, create=True, mutate=True)
+            primary = tuple(info["primary"])
+            data_id = uuid.uuid4().hex
+            try:
+                for addr in info["replicas"]:                       # 1. push data to every replica
+                    r, _ = protocol.call(addr, {"op": "push", "data_id": data_id}, data)
+                    if not r.get("ok"): raise GFSError("push failed")
+                secondaries = [list(a) for a in info["replicas"] if tuple(a) != primary]
+                r, _ = protocol.call(primary, {"op": "mutate", "handle": info["handle"], "version": info["version"], "kind": kind,   # 2. commit via primary
+                                               "offset": offset, "data_id": data_id, "secondaries": secondaries}, timeout=10)
+            except (OSError, GFSError) as e:
+                last = e; self._cache.pop((path, idx), None); continue
+            if r.get("ok"): return r
+            last = r.get("error"); self._cache.pop((path, idx), None)
+        raise GFSError(f"mutation failed: {last}")
