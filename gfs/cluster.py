@@ -38,3 +38,19 @@ class LocalCluster:
             time.sleep(0.05)
         raise TimeoutError("chunkservers did not register")
 
+    def client(self):
+        return GFSClient(self.master.addr)
+
+    def kill(self, i):
+        self.servers[i].stop()
+
+    def restart_master(self):
+        addr = self.master.addr
+        self.master.stop()
+        self.master = Master(os.path.join(self.root, "master"), port=addr[1], **self.params).start()
+
+    def replica_counts(self):
+        """handle -> number of live replicas according to the master"""
+        with self.master.lock:
+            return {h: len(self.master._live_locs(h)) for h in self.master.chunks}
+
