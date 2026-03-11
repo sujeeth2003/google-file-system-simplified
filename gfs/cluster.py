@@ -54,3 +54,15 @@ class LocalCluster:
         with self.master.lock:
             return {h: len(self.master._live_locs(h)) for h in self.master.chunks}
 
+    def wait_until(self, cond, timeout=10.0, step=0.1):
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if cond(): return True
+            time.sleep(step)
+        return False
+
+    def close(self):
+        for s in self.servers:
+            if s.alive: s.stop()
+        self.master.stop()
+        if self._own_root: shutil.rmtree(self.root, ignore_errors=True)
