@@ -45,3 +45,20 @@ class GFSClient:
             offset += n; length -= n
         return bytes(out)
 
+    def read_all(self, path):
+        return self.read(path, 0, self.stat(path))
+
+    def _read_chunk(self, path, idx, off, n):
+        last = None
+        for attempt in range(2):                           # second attempt re-asks the master (stale cache / dead replica)
+            info = self._chunk(path, idx, refresh=attempt > 0)
+            for addr in info["replicas"]:
+                try:
+                    r, data = protocol.call(addr, {"op": "read", "handle": info["handle"], "offset": off, "length": n})
+                except OSError as e:
+                    last = e; continue
+                if r.get("ok"):
+                    return data + b"\0" * (n - len(data))       # region past what the replica has yet reads as zeros
+                last = r.get("error")                          # e.g. checksum mismatch: fall through to the next replica
+        raise GFSError(f"read failed on all replicas: {last}")
+
