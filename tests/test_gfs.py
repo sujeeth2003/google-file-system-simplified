@@ -38,3 +38,23 @@ class GFSTests(unittest.TestCase):
         self.assertEqual(self.cl.read("/a", 4000, 300), data[4000:4300])     # straddles chunk 0/1
         self.assertEqual(self.cl.read_all("/a"), data)
 
+    def test_overwrite_in_the_middle(self):
+        self.cl.create("/o")
+        base = pattern(6000, 2)
+        self.cl.write("/o", 0, base)
+        patch = b"PATCH" * 100
+        self.cl.write("/o", 4090, patch)                                       # crosses a chunk boundary
+        expect = bytearray(base); expect[4090:4090 + len(patch)] = patch
+        self.assertEqual(self.cl.read_all("/o"), bytes(expect))
+
+    def test_every_chunk_has_three_identical_replicas(self):
+        self.cl.create("/r")
+        data = pattern(4096 * 2 + 500, 3)
+        self.cl.write("/r", 0, data)
+        counts = self.c.replica_counts()
+        self.assertEqual(len(counts), 3)
+        self.assertTrue(all(n == 3 for n in counts.values()), counts)
+        for h in counts:                                                         # byte-identical on disk
+            blobs = {blob(p) for p in glob.glob(os.path.join(self.c.root, "cs*", h + ".chunk"))}
+            self.assertEqual(len(blobs), 1, "replicas differ")
+
