@@ -89,3 +89,26 @@ class GFSTests(unittest.TestCase):
             self.assertEqual(got, struct.pack(">I", len(rec)) + rec)
         self.assertEqual(len(offsets), n_threads * per_thread)
 
+    def test_survives_chunkserver_failure_and_rereplicates(self):
+        self.cl.create("/f")
+        data = pattern(4096 * 3, 5)
+        self.cl.write("/f", 0, data)
+        victim = self.c.servers.index(next(s for s in self.c.servers if any(
+            os.path.exists(os.path.join(s.root, h + ".chunk")) for h in self.c.replica_counts())))
+        self.c.kill(victim)
+        self.assertEqual(self.cl.read_all("/f"), data)                         # reads fall back to surviving replicas
+        ok = self.c.wait_until(lambda: all(n == 3 for n in self.c.replica_counts().values()), timeout=15)
+        self.assertTrue(ok, f"did not restore replication: {self.c.replica_counts()}")
+        self.assertEqual(self.c.client().read_all("/f"), data)
+
+    def test_writes_continue_after_primary_dies(self):
+        self.cl.create("/p")
+        self.cl.write("/p", 0, pattern(1000, 6))
+        info = self.cl._chunk("/p", 0, mutate=True)
+        primary = tuple(info["primary"])
+        self.c.kill(next(i for i, s in enumerate(self.c.servers) if tuple(s.addr) == primary))
+        self.assertTrue(self.c.wait_until(lambda: primary not in self.c.master._live(), timeout=10))
+        self.cl._cache.clear()
+        self.cl.write("/p", 1000, b"after-failover")                            # master grants a lease to a surviving replica
+        self.assertEqual(self.cl.read("/p", 1000, 14), b"after-failover")
+
