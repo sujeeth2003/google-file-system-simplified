@@ -58,3 +58,34 @@ class GFSTests(unittest.TestCase):
             blobs = {blob(p) for p in glob.glob(os.path.join(self.c.root, "cs*", h + ".chunk"))}
             self.assertEqual(len(blobs), 1, "replicas differ")
 
+    def test_master_stores_only_metadata_not_data(self):
+        self.cl.create("/m")
+        self.cl.write("/m", 0, pattern(9000, 4))
+        master_files = os.listdir(os.path.join(self.c.root, "master"))
+        self.assertEqual(master_files, ["master.oplog"])                       # no chunk data lives on the master
+
+    def test_record_append_concurrent_writers(self):
+        self.cl.create("/log")
+        n_threads, per_thread = 6, 25
+        offsets, errors = {}, []
+
+        def worker(t):
+            cl = self.c.client()
+            for i in range(per_thread):
+                rec = struct.pack(">HH", t, i) + pattern(30 + (i * 7) % 50, t * 1000 + i)
+                try:
+                    offsets[(t, i)] = (cl.append("/log", struct.pack(">I", len(rec)) + rec), rec)
+                except GFSError as e:
+                    errors.append(e)
+        ths = [threading.Thread(target=worker, args=(t,)) for t in range(n_threads)]
+        [t.start() for t in ths]; [t.join() for t in ths]
+        self.assertEqual(errors, [])
+        # every record readable exactly at the offset GFS returned; no two records overlap
+        spans = sorted((off, off + 4 + len(rec)) for off, rec in offsets.values())
+        for (a0, a1), (b0, b1) in zip(spans, spans[1:]):
+            self.assertLessEqual(a1, b0, "records overlap")
+        for (t, i), (off, rec) in offsets.items():
+            got = self.cl.read("/log", off, 4 + len(rec))
+            self.assertEqual(got, struct.pack(">I", len(rec)) + rec)
+        self.assertEqual(len(offsets), n_threads * per_thread)
+
