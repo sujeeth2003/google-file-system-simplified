@@ -126,3 +126,25 @@ class GFSTests(unittest.TestCase):
                                len({blob(p) for p in glob.glob(os.path.join(self.c.root, "cs*", h + ".chunk"))}) == 1, timeout=15)
         self.assertTrue(ok, "corrupt replica was not repaired")
 
+    def test_master_restart_recovers_namespace(self):
+        self.cl.create("/x/one"); self.cl.create("/x/two"); self.cl.create("/y")
+        data = pattern(5000, 8)
+        self.cl.write("/x/one", 0, data)
+        self.c.restart_master()
+        self.assertTrue(self.c.wait_until(lambda: len(self.c.master._live()) == 5, timeout=10))   # locations re-learned from heartbeats
+        cl2 = self.c.client()
+        self.assertEqual(cl2.list("/x/"), ["/x/one", "/x/two"])
+        self.assertTrue(self.c.wait_until(lambda: all(n == 3 for n in self.c.replica_counts().values()), timeout=10))
+        self.assertEqual(cl2.read_all("/x/one"), data)
+
+    def test_delete_garbage_collects_chunks(self):
+        self.cl.create("/d")
+        self.cl.write("/d", 0, pattern(5000, 9))
+        self.assertGreater(len(glob.glob(os.path.join(self.c.root, "cs*", "*.chunk"))), 0)
+        self.cl.delete("/d")
+        self.assertTrue(self.c.wait_until(lambda: not glob.glob(os.path.join(self.c.root, "cs*", "*.chunk")), timeout=10))
+        with self.assertRaises(GFSError): self.cl.stat("/d")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
