@@ -112,3 +112,17 @@ class GFSTests(unittest.TestCase):
         self.cl.write("/p", 1000, b"after-failover")                            # master grants a lease to a surviving replica
         self.assertEqual(self.cl.read("/p", 1000, 14), b"after-failover")
 
+    def test_corrupt_replica_detected_and_repaired(self):
+        self.cl.create("/c")
+        data = pattern(4096, 7)
+        self.cl.write("/c", 0, data)
+        h = next(iter(self.c.replica_counts()))
+        victim = sorted(glob.glob(os.path.join(self.c.root, "cs*", h + ".chunk")))[0]
+        with open(victim, "r+b") as f:                                         # flip bytes in one replica behind GFS's back
+            f.seek(100); f.write(b"\xde\xad\xbe\xef")
+        for _ in range(6):                                                     # any replica may be tried first; all reads must be correct
+            self.assertEqual(self.c.client().read("/c", 0, 4096), data)
+        ok = self.c.wait_until(lambda: self.c.replica_counts().get(h) == 3 and
+                               len({blob(p) for p in glob.glob(os.path.join(self.c.root, "cs*", h + ".chunk"))}) == 1, timeout=15)
+        self.assertTrue(ok, "corrupt replica was not repaired")
+
