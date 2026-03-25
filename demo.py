@@ -18,3 +18,13 @@ try:
     assert cl.read_all("/demo") == payload
     print("read after crash: OK (served from surviving replicas)")
 
+    dead = tuple(c.servers[victim].addr)
+    c.wait_until(lambda: dead not in c.master._live(), timeout=20)          # heartbeats stop -> master declares it dead
+    print(f"master noticed the failure {time.time() - t0:.1f}s after the crash; replicas now {list(c.replica_counts().values())}")
+    c.wait_until(lambda: all(n == 3 for n in c.replica_counts().values()), timeout=20)
+    print(f"replication restored to {list(c.replica_counts().values())} {time.time() - t0:.1f}s after the crash")
+
+    offsets = [cl.append("/demo", f"record-{i}".encode()) for i in range(3)]
+    print("record appends at offsets", offsets)
+finally:
+    c.close()
