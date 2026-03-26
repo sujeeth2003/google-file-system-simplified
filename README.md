@@ -26,3 +26,14 @@ A working, small-scale implementation of the ideas in *The Google File System* (
 | Lazy garbage collection | Deleted files' chunks are dropped when servers next heartbeat |
 | Master restart | Grace period so it does not panic-replicate before locations are known |
 
+## Try it
+```bash
+python -m unittest discover -s tests -v      # ~40 s, starts a real 5-server cluster per test
+python demo.py                               # write, kill a server, keep reading, watch re-replication
+```
+```python
+from gfs import LocalCluster
+c = LocalCluster(n_servers=5); cl = c.client()
+cl.create("/logs/a"); off = cl.append("/logs/a", b"hello"); print(cl.read("/logs/a", off, 5))
+```
+
