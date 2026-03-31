@@ -37,3 +37,10 @@ c = LocalCluster(n_servers=5); cl = c.client()
 cl.create("/logs/a"); off = cl.append("/logs/a", b"hello"); print(cl.read("/logs/a", off, 5))
 ```
 
+## Tests (all pass; 10 tests)
+Cross-chunk write/read, overwrite across a boundary, three byte-identical replicas per chunk, master stores no file data, 6 threads x 25 concurrent record appends (no overlap, each readable at its returned offset), reads survive a chunkserver crash **and** the replication factor is restored, writes continue after the primary dies, a silently corrupted replica is detected and repaired, master restart recovers the namespace, deleted files are garbage collected.
+
+Writing these tests exposed four real bugs that are now fixed: a heartbeat snapshot racing a version bump made the master delete a healthy replica; `IOError` (== `OSError`) treated as checksum failure; `length` observed a replica mid-copy; the master over-replicated right after a restart.
+
+## Not implemented (honest scope)
+Multi-master / shadow masters and automatic master failover; snapshots; hierarchical directory locking (the namespace is a flat path map); rack-aware placement; chunk-server-to-chunkserver data pipelining (the client pushes to each replica directly); lease extension via heartbeat; master checkpoints (only an unbounded operation log). No authentication. It is a teaching implementation, not a storage system.
